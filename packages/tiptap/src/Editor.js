@@ -1,10 +1,15 @@
-import { EditorState, Plugin, PluginKey } from 'prosemirror-state'
+import {
+  EditorState,
+  Plugin,
+  PluginKey,
+  TextSelection,
+} from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { Schema, DOMParser, DOMSerializer } from 'prosemirror-model'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { keymap } from 'prosemirror-keymap'
-import { baseKeymap, selectParentNode } from 'prosemirror-commands'
+import { baseKeymap } from 'prosemirror-commands'
 import { inputRules, undoInputRule } from 'prosemirror-inputrules'
 import { markIsActive, nodeIsActive, getMarkAttrs } from 'tiptap-utils'
 import { ExtensionManager, ComponentView } from './Utils'
@@ -26,7 +31,10 @@ export default class Editor {
         }],
       },
       useBuiltInExtensions: true,
+      disabledInputRules: [],
+      disabledPasteRules: [],
       dropCursor: {},
+      parseOptions: {},
       onInit: () => {},
       onUpdate: () => {},
       onFocus: () => {},
@@ -115,12 +123,14 @@ export default class Editor {
   createInputRules() {
     return this.extensions.inputRules({
       schema: this.schema,
+      excludedExtensions: this.options.disabledInputRules,
     })
   }
 
   createPasteRules() {
     return this.extensions.pasteRules({
       schema: this.schema,
+      excludedExtensions: this.options.disabledPasteRules,
     })
   }
 
@@ -160,7 +170,6 @@ export default class Editor {
         ...this.keymaps,
         keymap({
           Backspace: undoInputRule,
-          Escape: selectParentNode,
         }),
         keymap(baseKeymap),
         dropCursor(this.options.dropCursor),
@@ -185,7 +194,7 @@ export default class Editor {
     })
   }
 
-  createDocument(content) {
+  createDocument(content, parseOptions = this.options.parseOptions) {
     if (content === null) {
       return this.schema.nodeFromJSON(this.options.emptyDocument)
     }
@@ -203,7 +212,7 @@ export default class Editor {
       const element = document.createElement('div')
       element.innerHTML = content.trim()
 
-      return DOMParser.fromSchema(this.schema).parse(element)
+      return DOMParser.fromSchema(this.schema).parse(element, parseOptions)
     }
 
     return false
@@ -298,7 +307,21 @@ export default class Editor {
     })
   }
 
-  focus() {
+  focus(position = null) {
+    if (position !== null) {
+      let pos = position
+
+      if (position === 'start') {
+        pos = 0
+      } else if (position === 'end') {
+        pos = this.view.state.doc.nodeSize - 2
+      }
+
+      const selection = TextSelection.near(this.view.state.doc.resolve(pos))
+      const transaction = this.view.state.tr.setSelection(selection)
+      this.view.dispatch(transaction)
+    }
+
     this.view.focus()
   }
 
@@ -321,10 +344,10 @@ export default class Editor {
     return this.state.doc.toJSON()
   }
 
-  setContent(content = {}, emitUpdate = false) {
+  setContent(content = {}, emitUpdate = false, parseOptions) {
     this.state = EditorState.create({
       schema: this.state.schema,
-      doc: this.createDocument(content),
+      doc: this.createDocument(content, parseOptions),
       plugins: this.state.plugins,
     })
 
